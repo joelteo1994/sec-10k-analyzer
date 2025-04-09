@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <!-- Set character encoding and viewport for responsive design -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Page title -->
+    <title>SEC Analyzer</title>
+
+    <!-- Load Bootstrap for styling -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+
+    <!-- Custom styles -->
+    <style>
+        body { padding: 2rem; }
+        .section { margin-bottom: 2rem; }
+        .wordcloud-img { max-width: 100%; height: auto; }
+        .table-section { overflow-x: auto; }
+        #loading-spinner { display: none; }
+
+            /* 💅 Table Prettification */
+        .table th {
+            background-color: #f1f3f5;
+            font-weight: 600;
+            text-align: center;
+        }
+        .table td {
+            vertical-align: middle;
+        }
+    </style>
+</head>
+<body>
+    <!-- Main heading -->
+    <h1 class="mb-4">🤖 AI-Powered SEC Analyzer</h1>
+
+    <!-- Introductory Description with Light Grey Background -->
+    <div class="mb-4 p-4" style="background-color: #f8f8fad7; border-radius: 8px;">
+        <p>This tool automates the retrieval and analysis of the latest SEC 10-K filing for any publicly listed company. Core functionalities include:</p>
+        <ul>
+            <li><strong>Automated Web Scraping</strong>: Retrieves the most recent 10-K filing from the SEC EDGAR database using the provided CIK.</li>
+            <li><strong>Section Extraction</strong>: Identifies and extracts key sections (e.g., <em>Item 1: Business</em>, <em>Item 7: MD&A</em>), allowing users to select specific areas of interest.</li>
+            <li><strong>Natural Language Processing (NLP)</strong>:
+                <ul>
+                    <li><strong>Summarization</strong>: Extractive summaries of selected sections for rapid understanding.</li>
+                    <li><strong>Topic Modeling</strong>: Discovers latent themes using BERTopic with dynamic visualization support.</li>
+                    <li><strong>Sentiment Analysis</strong>: Evaluates sentiment using both VADER (rule-based) and transformer-based models.</li>
+                </ul>
+            </li>
+            <li><strong>Quantitative Analysis</strong>:
+                <ul>
+                    <li>Identifies and parses structured financial tables within the report.</li>
+                    <li>Cleans and standardizes data for consistency.</li>
+                    <li>Generates intuitive line and bar charts to visualize trends across years.</li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+
+
+    <!-- === Form Section === -->
+    <form id="analyze-form" class="mb-5">
+        <div class="row g-3">
+            <!-- Input for CIK number -->
+            <div class="col-md-6">
+                <label for="cik" class="form-label fw-semibold fs-5">
+                    CIK <span class="text-muted fw-normal fs-6">(e.g. 0000320193)</span>
+                </label>
+                <input type="text" class="form-control" id="cik" name="cik" required>
+            </div>
+
+            <!-- Input for Company name -->
+            <div class="col-md-6">
+                <label for="company" class="form-label fw-semibold fs-5">
+                    Company Name <span class="text-muted fw-normal fs-6">(e.g. Apple)</span>
+                </label>
+                <input type="text" class="form-control" id="company" name="company" required>
+            </div>
+        </div>
+        <!-- Button to load sections/tables after user fills CIK/company -->
+        <div class="mt-4">
+            <button type="button" class="btn btn-primary" id="load-metadata">🔄 Extract Form 10-K Data</button>
+        </div>
+
+        <!-- === NLP Sections === -->
+        <div class="mt-4">
+            <label class="form-label fw-semibold fs-5">📚 NLP Sections <span class="text-muted fs-6">(default: Item 1 & 7)</span></label>
+            <div id="sections" class="form-check border rounded p-2" style="max-height: 200px; overflow-y: auto; background-color: #f9f9f9;"></div>
+        </div>
+
+        <!-- === Quantitative Tables === -->
+        <div class="mt-4">
+            <label class="form-label fw-semibold fs-5">📊 Quant Tables <span class="text-muted fs-6">(optional)</span></label>
+            <div id="tables" class="form-check border rounded p-2" style="max-height: 200px; overflow-y: auto; background-color: #f9f9f9;"></div>
+        </div>
+
+
+        <!-- Submit button -->
+        <button type="submit" class="btn btn-primary mt-4" id="analyze-btn">🚀 Analyze</button>
+    </form>
+
+    <!-- Spinner shown while loading -->
+    <div id="loading-spinner" class="text-center">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+        <p>Crunching data, please wait...</p>
+    </div>
+
+    <!-- === Result Sections === -->
+    <div id="results" class="d-none mt-4">
+        <div class="alert alert-success">✅ Analysis Complete</div>
+    
+        <!-- Summary Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">📌 Summary (Main Extracted Sentences) </div>
+            <div class="card-body">
+                <p id="summary-text" class="mb-0"></p>
+            </div>
+        </div>
+    
+        <!-- Sentiment Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">💬 Sentiment</div>
+            <div class="card-body">
+                <div id="sentiment-summary" class="mb-3"></div>
+                <button id="download-sentiment-summary" class="btn btn-sm btn-outline-success mb-3">⬇️ Download Summary CSV</button>
+                <div id="sentiment-details" style="max-height: 300px; overflow-y: auto; border: 1px solid #ddd; padding:1rem; border-radius:8px;"></div>
+                <button id="download-sentiment-details" class="btn btn-sm btn-outline-primary mt-2">⬇️ Download Detailed CSV</button>
+            </div>
+        </div>
+    
+        <!-- Word Cloud Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">☁️ Word Cloud</div>
+            <div class="card-body text-center">
+                <img id="wordcloud-img" class="wordcloud-img img-fluid" src="" alt="Word Cloud">
+            </div>
+        </div>
+    
+        <!-- Topics Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">🧵 Topics</div>
+            <div class="card-body">
+                <div id="topic-display"></div>
+                <a id="download-topics" href="#" class="btn btn-sm btn-outline-success mt-2">⬇️ Download Topics CSV</a>
+            </div>
+        </div>
+    
+        <!-- Quant Tables Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">📊 Quant Tables</div>
+            <div class="card-body table-responsive">
+                <div id="quant-tables"></div>
+            </div>
+        </div>
+    
+        <!-- Quant Charts Card -->
+        <div class="card mb-4 shadow-sm">
+            <div class="card-header fw-semibold">📈 Quant Charts</div>
+            <div class="card-body">
+                <div id="quant-charts"></div>
+            </div>
+        </div>
+    </div>    
+
+    <!-- === JS Scripts === -->
+    <script>
+    document.addEventListener("DOMContentLoaded", function () {
+        document.getElementById("load-metadata").addEventListener("click", async function () {
+            const cik = document.getElementById("cik").value.trim();
+            const company = document.getElementById("company").value.trim();
+            const spinner = document.getElementById("loading-spinner");
+
+            if (!cik || !company) {
+                alert("Please enter both CIK and Company Name.");
+                return;
+            }
+
+            spinner.style.display = "block"; // 🔄 Show spinner before fetch
+            document.querySelector("#loading-spinner p").textContent = "🔍 Extracting Form 10-K metadata...";
+
+            try {
+                const formData = new FormData();
+                formData.append("cik", cik);
+                formData.append("company", company);
+
+                const resp = await fetch("/metadata", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const metadata = await resp.json();
+                if (!resp.ok) {
+                    alert(metadata.error || "Failed to fetch metadata.");
+                    return;
+                }
+
+                // === Render NLP section checkboxes with title ===
+                const sectionSelect = document.getElementById("sections");
+                sectionSelect.innerHTML = ""; // Clear previous
+                Object.entries(metadata.sections)
+                    .sort((a, b) => {
+                        const numA = parseInt(a[0].match(/\d+/)[0]);
+                        const numB = parseInt(b[0].match(/\d+/)[0]);
+                        return numA - numB;
+                    })
+                    .forEach(([id, title]) => {
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.name = "sections";
+                        checkbox.value = id;
+                        checkbox.id = `section-${id}`;
+                        checkbox.className = "form-check-input";
+                        if (["Item 1", "Item 7"].includes(id)) checkbox.checked = true;
+
+                        const label = document.createElement("label");
+                        label.htmlFor = `section-${id}`;
+                        label.className = "form-check-label";
+                        label.innerHTML = `<strong>${id}</strong>: ${title}`; // 👈 this is the new label format
+
+                        const wrapper = document.createElement("div");
+                        wrapper.className = "form-check";
+                        wrapper.appendChild(checkbox);
+                        wrapper.appendChild(label);
+
+                        sectionSelect.appendChild(wrapper);
+                });
+
+                // === Render Quant Table checkboxes with titles ===
+                const tableSelect = document.getElementById("tables");
+                tableSelect.innerHTML = ""; // Clear previous
+                Object.entries(metadata.tables)
+                    .sort((a, b) => {
+                        const numA = parseInt(a[0].match(/\d+/)[0]);
+                        const numB = parseInt(b[0].match(/\d+/)[0]);
+                        return numA - numB;
+                    })
+                    .forEach(([id, title]) => {
+                        const checkbox = document.createElement("input");
+                        checkbox.type = "checkbox";
+                        checkbox.name = "tables";
+                        checkbox.value = id;
+                        checkbox.id = `table-${id}`;
+                        checkbox.className = "form-check-input";
+                        if (["Table_7", "Table_8"].includes(id)) checkbox.checked = true;
+
+                        const label = document.createElement("label");
+                        label.htmlFor = `table-${id}`;
+                        label.className = "form-check-label";
+                        label.innerHTML = `<strong>${id}</strong>: ${title}`;
+
+                        const wrapper = document.createElement("div");
+                        wrapper.className = "form-check";
+                        wrapper.appendChild(checkbox);
+                        wrapper.appendChild(label);
+
+                        tableSelect.appendChild(wrapper);
+                });
+
+            } catch (err) {
+                alert("Error loading metadata.");
+                console.error(err);
+            }
+            finally {
+                spinner.style.display = "none"; // ✅ Hide spinner after done
+            }
+        });
+
+        document.getElementById("analyze-form").addEventListener("submit", async function (e) {
+            e.preventDefault();
+
+            const analyzeBtn = document.getElementById("analyze-btn");
+            const spinner = document.getElementById("loading-spinner");
+            analyzeBtn.disabled = true;
+            spinner.style.display = "block";
+
+            try {
+                const formData = new FormData(e.target);
+
+                const response = await fetch("/analyze", {
+                    method: "POST",
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    alert(result.error || "Something went wrong.");
+                    return;
+                }
+
+                document.getElementById("results").classList.remove("d-none");
+                document.getElementById("summary-text").textContent = result.summary;
+                document.getElementById("sentiment-summary").innerHTML = result.sentiment_summary;
+                document.getElementById("sentiment-details").innerHTML = result.sentiment_details;
+                document.getElementById("wordcloud-img").src = `/${result.wordcloud}`;
+                document.getElementById("download-topics").href = `/download/topics?path=${result.topics_csv}`;
+
+                // Render cleaned sentiment topics inline
+                const topicDisplay = document.getElementById("topic-display"); //grabs the <div id="topic-display"> element from HTML, where topics will be displayed
+                topicDisplay.innerHTML = ""; //clears out any existing content (e.g. from previous run) so that can freshly render new topics
+                if (result.topics_preview) { //check that backends actually send a topics_preview before continuing
+                    let displayIndex = 1; // Label topics starting from Topic 1; increment this as we loop
+
+                    const cleanedTopics = result.topics_preview
+                        .filter(t => !t.startsWith("-1_"))
+                        .map(t => { //start processing each raw topic string from the backend
+                        // Match topic number (e.g. "-1_", "0_", "3_") and extract label
+                        const match = t.match(/^(-?\d+)_/); //matches the numeric prefix at the start of the string. ^: start of string, (-?\d+) optional "-"" followed by digits
+                        let prefix = match ? match[1] : ""; //extracts number from the match; if no match is found, fallback to empty string
+                        let label = t.replace(/^(-?\d+)_/, ""); //removes topic number and underscore
+
+                        // Format label
+                        label = label.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); //clean up label by changing underscore to spaces, and capitalising each word
+
+                        // Replace -1 with "Others", otherwise number from 1 onward
+                        const topicLabel = `Topic ${displayIndex++}`; //decide how to label the topic
+
+                        return `<li class="list-group-item">🔹 <strong>${topicLabel}</strong>: ${label}</li>`; 
+                    });
+
+                    topicDisplay.innerHTML = `<ul class="list-group">${cleanedTopics.join("")}</ul>`;
+                }
+
+                // Render quant tables
+                const quantTablesDiv = document.getElementById("quant-tables");
+                quantTablesDiv.innerHTML = "";
+                for (const [key, val] of Object.entries(result.tables || {})) {
+                    const title = val.title;
+                    const tableHtml = val.data;
+                    quantTablesDiv.innerHTML += `
+                        <div class="mb-4">
+                            <h5 class="fw-semibold">${title}</h5>
+                            <div class="table-responsive">${tableHtml}</div>
+                        </div>
+                        `;
+                }
+
+                // Render graphs (flask backend sends results.graphs, which is list of filenames like chart_Table_7). results.graphs defined in app.py as part of the json return block
+                const quantChartsDiv = document.getElementById("quant-charts"); //loop takes each chart path and creates and image tag with src='/chart_Table_7.png'
+                quantChartsDiv.innerHTML = "";
+                if (result.graphs) {
+                    result.graphs.forEach(src => {
+                        quantChartsDiv.innerHTML += `<img src="/static/${src}" class="img-fluid mb-3" alt="Chart">`;
+                    }); //image is then appended to the #quant-charts div
+                }
+
+            } catch (err) {
+                alert("An error occurred during analysis.");
+                console.error(err);
+            } finally {
+                analyzeBtn.disabled = false;
+                spinner.style.display = "none";
+            }
+        });
+    });
+    </script>
+</body>
+</html>
